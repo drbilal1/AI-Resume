@@ -10,9 +10,7 @@ Original file is located at
 import streamlit as st
 import openai
 
-#OPENAI_API_KEY = "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"
-# Load OpenAI API key from secrets
-#openai.api_key = "OPENAI_API_KEY"
+#Load OpenAI API key from secrets
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 # Initialize session state
