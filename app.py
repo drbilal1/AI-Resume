@@ -14,117 +14,119 @@ from fpdf import FPDF
 try:
     api_key = st.secrets["OPENAI_API_KEY"]
 except KeyError:
-    st.error("OpenAI API key not found in Streamlit secrets. Please add it to your app's secrets.")
+    st.error("OpenAI API key not found in Streamlit secrets.")
     st.stop()
 
 client = openai.OpenAI(api_key=api_key)
 
 # --- Session State Initialization ---
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = [{"role": "system", "content": "You are a friendly and professional resume assistant. Your goal is to collect all necessary information from the user to build a comprehensive resume. Ask clear, concise questions one at a time. Once you have enough information, indicate that the resume is ready to be generated."}]
+    st.session_state.chat_history = [{
+        "role": "system", 
+        "content": "You are a resume assistant. Ask one question at a time to build a resume."
+    }]
 if "resume_ready" not in st.session_state:
     st.session_state.resume_ready = False
 if "last_assistant_message" not in st.session_state:
     st.session_state.last_assistant_message = ""
 
-# --- Streamlit UI ---
-st.set_page_config(page_title="Smart Resume Builder", layout="centered")
+# --- UI Setup ---
+st.set_page_config(page_title="Resume Builder", layout="centered")
 st.title("📄 Smart Resume Builder")
-st.write("Hello! I'm your AI resume assistant. I'll ask you a series of questions to gather information and then generate a professional resume for you.")
+st.write("Hello! I'll help you create a professional resume.")
 
-# --- Chat Loop ---
+# --- Chat Display ---
 if not st.session_state.resume_ready:
+    # Show chat history (skip system message)
     for msg in st.session_state.chat_history[1:]:
-        if msg["role"] == "assistant":
-            st.markdown(f"**🤖 Assistant:** {msg['content']}")
-        elif msg["role"] == "user":
-            st.markdown(f"**🧑 You:** {msg['content']}")
+        role = "🤖 Assistant" if msg["role"] == "assistant" else "🧑 You"
+        st.markdown(f"**{role}:** {msg['content']}")
 
-    if len(st.session_state.chat_history) == 1 and not st.session_state.last_assistant_message:
+    # Initial assistant message
+    if len(st.session_state.chat_history) == 1:
         with st.spinner("Thinking..."):
             try:
                 response = client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=st.session_state.chat_history
                 )
-                initial_assistant_message = response.choices[0].message.content
-                st.session_state.chat_history.append({"role": "assistant", "content": initial_assistant_message})
-                st.session_state.last_assistant_message = initial_assistant_message 
+                first_question = response.choices[0].message.content
+                st.session_state.chat_history.append({
+                    "role": "assistant", 
+                    "content": first_question
+                })
+                st.session_state.last_assistant_message = first_question
                 st.rerun()
-            except openai.APIError as e:
-                st.error(f"Error communicating with OpenAI: {e}")
+            except Exception as e:
+                st.error(f"Error: {e}")
                 st.stop()
 
-    # Input from user - will auto-clear on submit
+    # Input box - always starts empty for new questions
     user_input = st.text_input(
-        "Your answer:", 
-        key="user_input",
-        value="",  # Always starts empty
-        label_visibility="visible"
+        "Your answer:",
+        key=f"input_{len(st.session_state.chat_history)}",  # Unique key per question
+        value=""
     )
 
-    # Send button logic
     if st.button("Send", use_container_width=True) and user_input.strip():
-        # Add user message to history
-        st.session_state.chat_history.append({"role": "user", "content": user_input})
+        # Add user response
+        st.session_state.chat_history.append({
+            "role": "user", 
+            "content": user_input
+        })
         
-        with st.spinner("AI is thinking..."):
+        with st.spinner("Thinking..."):
             try:
                 response = client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=st.session_state.chat_history
                 )
-                assistant_message = response.choices[0].message.content
-                st.session_state.chat_history.append({"role": "assistant", "content": assistant_message})
-                st.session_state.last_assistant_message = assistant_message
-
-                if any(phrase in assistant_message.lower() 
-                      for phrase in ["resume is ready", "generating your resume", "i have enough information"]):
+                assistant_reply = response.choices[0].message.content
+                st.session_state.chat_history.append({
+                    "role": "assistant", 
+                    "content": assistant_reply
+                })
+                
+                if "resume is ready" in assistant_reply.lower():
                     st.session_state.resume_ready = True
                 
-                # Clear the input by rerunning
-                st.rerun()
+                st.rerun()  # This clears the input
                 
-            except openai.APIError as e:
-                st.error(f"Error communicating with OpenAI: {e}")
+            except Exception as e:
+                st.error(f"Error: {e}")
 
-# --- Resume Generation and Display ---
+# --- Resume Generation ---
 else:
-    st.subheader("## 📝 Your Generated Resume")
-    with st.spinner("Generating your professional resume..."):
+    st.subheader("Your Resume")
+    with st.spinner("Generating..."):
         try:
-            final_resume_prompt = "Based on our conversation, please generate a full, professional resume in markdown format. Include sections like Contact Information, Summary/Objective, Work Experience, Education, Skills, and any other relevant sections we discussed. Format it clearly and professionally."
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
-                messages=st.session_state.chat_history + [{"role": "user", "content": final_resume_prompt}]
+                messages=st.session_state.chat_history + [{
+                    "role": "user",
+                    "content": "Generate my resume in markdown format"
+                }]
             )
-            resume_md = response.choices[0].message.content
-            st.markdown(resume_md)
-
-            # Generate PDF
+            resume = response.choices[0].message.content
+            st.markdown(resume)
+            
+            # PDF Generation
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Arial", size=12)
-            
-            # Convert markdown to plain text for PDF
-            resume_text = resume_md.replace('#', '').replace('*', '').replace('_', '')
-            
-            for line in resume_text.split('\n'):
-                if line.strip():  # Only add non-empty lines
-                    pdf.multi_cell(0, 10, txt=line)
-            
-            pdf_bytes = pdf.output(dest='S').encode('latin1')
-
+            for line in resume.replace('*', '').split('\n'):
+                if line.strip():
+                    pdf.multi_cell(0, 10, line.strip())
             st.download_button(
-                label="📥 Download as PDF",
-                data=pdf_bytes,
-                file_name="resume.pdf",
-                mime="application/pdf",
+                "📥 Download PDF",
+                pdf.output(dest='S').encode('latin1'),
+                "resume.pdf",
+                "application/pdf",
                 use_container_width=True
             )
-
-        except openai.APIError as e:
-            st.error(f"Error generating resume with OpenAI: {e}")
+            
+        except Exception as e:
+            st.error(f"Error: {e}")
     
     if st.button("🔄 Start Over", use_container_width=True):
         for key in list(st.session_state.keys()):
