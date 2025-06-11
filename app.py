@@ -69,7 +69,7 @@ if not st.session_state.resume_ready:
                 initial_assistant_message = response.choices[0].message.content # Accessing content using dot notation
                 st.session_state.chat_history.append({"role": "assistant", "content": initial_assistant_message})
                 st.session_state.last_assistant_message = initial_assistant_message 
-                st.experimental_rerun() # Rerun to display the initial message
+                st.rerun() # Rerun to display the initial message - CHANGED FROM st.experimental_rerun()
             except openai.APIError as e:
                 st.error(f"Error communicating with OpenAI: {e}")
                 st.stop() # Stop execution if there's an API error
@@ -112,8 +112,7 @@ if not st.session_state.resume_ready:
                 except openai.APIError as e:
                     st.error(f"Error communicating with OpenAI: {e}")
             
-            # Rerun the app to update the display with new messages
-            st.experimental_rerun()
+            st.rerun() # Rerun the app to update the display with new messages - CHANGED FROM st.experimental_rerun()
 
 # --- Resume Generation and Display ---
 # This block executes once `st.session_state.resume_ready` becomes True.
@@ -148,4 +147,4 @@ else:
         for key in ["chat_history", "resume_ready", "user_input", "last_assistant_message"]:
             if key in st.session_state:
                 del st.session_state[key]
-        st.experimental_rerun() # Rerun to go back to the chat interface
+        st.rerun() # Rerun to go back to the chat interface - CHANGED FROM st.experimental_rerun()
