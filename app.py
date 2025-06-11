@@ -8,7 +8,7 @@ Original file is located at
 """
 import streamlit as st
 import openai
-from fpdf import FPDF  # For PDF generation
+from fpdf import FPDF
 
 # --- Configuration ---
 try:
@@ -57,49 +57,38 @@ if not st.session_state.resume_ready:
                 st.error(f"Error communicating with OpenAI: {e}")
                 st.stop()
 
-    # Input from user - modified to maintain text after pressing Enter
+    # Input from user
     user_input = st.text_input(
         "Your answer:", 
-        value=st.session_state.user_input, 
+        value="",  # Always start with empty input
         key="user_input_widget",
-        on_change=lambda: None  # Prevents clearing on Enter
+        on_change=lambda: None
     )
 
     # Send button logic
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        if st.button("Send", use_container_width=True):
-            if user_input.strip() != "":
-                st.session_state.last_assistant_message = ""
-                st.session_state.chat_history.append({"role": "user", "content": user_input})
-                
-                with st.spinner("AI is thinking..."):
-                    try:
-                        response = client.chat.completions.create(
-                            model="gpt-3.5-turbo",
-                            messages=st.session_state.chat_history
-                        )
-                        assistant_message = response.choices[0].message.content
-                        st.session_state.chat_history.append({"role": "assistant", "content": assistant_message})
-                        st.session_state.last_assistant_message = assistant_message
+    if st.button("Send", use_container_width=True) and user_input.strip():
+        st.session_state.user_input = user_input  # Store the current input
+        st.session_state.last_assistant_message = ""
+        st.session_state.chat_history.append({"role": "user", "content": user_input})
+        
+        with st.spinner("AI is thinking..."):
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=st.session_state.chat_history
+                )
+                assistant_message = response.choices[0].message.content
+                st.session_state.chat_history.append({"role": "assistant", "content": assistant_message})
+                st.session_state.last_assistant_message = assistant_message
 
-                        if "resume is ready" in assistant_message.lower() or \
-                           "generating your resume" in assistant_message.lower() or \
-                           "i have enough information" in assistant_message.lower():
-                            st.session_state.resume_ready = True
-                            
-                        # Clear input only after successful processing
-                        st.session_state.user_input = ""
-                    
-                    except openai.APIError as e:
-                        st.error(f"Error communicating with OpenAI: {e}")
+                if any(phrase in assistant_message.lower() for phrase in ["resume is ready", "generating your resume", "i have enough information"]):
+                    st.session_state.resume_ready = True
                 
+                # Clear the input by rerunning
                 st.rerun()
-
-    with col2:
-        if st.button("Clear Input", use_container_width=True):
-            st.session_state.user_input = ""
-            st.rerun()
+                
+            except openai.APIError as e:
+                st.error(f"Error communicating with OpenAI: {e}")
 
 # --- Resume Generation and Display ---
 else:
@@ -119,7 +108,7 @@ else:
             pdf.add_page()
             pdf.set_font("Arial", size=12)
             
-            # Convert markdown to plain text for PDF (simple approach)
+            # Convert markdown to plain text for PDF
             resume_text = resume_md.replace('#', '').replace('*', '').replace('_', '')
             
             for line in resume_text.split('\n'):
