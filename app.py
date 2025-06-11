@@ -7,7 +7,7 @@ Original file is located at
     https://colab.research.google.com/drive/1E38UDeEps5lm4Ddm2JRyHQKwunaQaiK0
 """
 
-#import streamlit as st
+import streamlit as st
 #import openai
 
 OPENAI_API_KEY = "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"
