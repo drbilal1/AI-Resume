@@ -8,6 +8,7 @@ Original file is located at
 """
 import streamlit as st
 import openai
+
 # --- Configuration ---
 # Load OpenAI API key from Streamlit secrets. This is the recommended way to handle secrets
 # in Streamlit Cloud. Make sure you have your "OPENAI_API_KEY" configured in your app's
@@ -63,7 +64,8 @@ if not st.session_state.resume_ready:
                 )
                 initial_assistant_message = response["choices"][0]["message"]["content"]
                 st.session_state.chat_history.append({"role": "assistant", "content": initial_assistant_message})
-                st.session_state.last_assistant_message = initial_assistant_message
+                # CORRECTED TYPO HERE: was st.session_session_state.last_assistant_message
+                st.session_state.last_assistant_message = initial_assistant_message 
                 st.experimental_rerun() # Rerun to display the initial message
             except openai.error.OpenAIError as e:
                 st.error(f"Error communicating with OpenAI: {e}")
@@ -144,5 +146,3 @@ else:
             if key in st.session_state:
                 del st.session_state[key]
         st.experimental_rerun() # Rerun to go back to the chat interface
-
-
