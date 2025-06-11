@@ -67,7 +67,7 @@ if not st.session_state.resume_ready:
                 # CORRECTED TYPO HERE: was st.session_session_state.last_assistant_message
                 st.session_state.last_assistant_message = initial_assistant_message 
                 st.experimental_rerun() # Rerun to display the initial message
-            except openai.error.OpenAIError as e:
+            except openai.APIError as e: # Changed from openai.error.OpenAIError
                 st.error(f"Error communicating with OpenAI: {e}")
                 st.stop() # Stop execution if there's an API error
 
@@ -106,7 +106,7 @@ if not st.session_state.resume_ready:
                        "i have enough information" in assistant_message.lower():
                         st.session_state.resume_ready = True
 
-                except openai.error.OpenAIError as e:
+                except openai.APIError as e: # Changed from openai.error.OpenAIError
                     st.error(f"Error communicating with OpenAI: {e}")
             
             # Rerun the app to update the display with new messages
@@ -136,7 +136,7 @@ else:
                 use_container_width=True
             )
 
-        except openai.error.OpenAIError as e:
+        except openai.APIError as e: # Changed from openai.error.OpenAIError
             st.error(f"Error generating resume with OpenAI: {e}")
     
     # Button to start over the resume building process
