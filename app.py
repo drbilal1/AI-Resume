@@ -9,6 +9,7 @@ Original file is located at
 import streamlit as st
 import openai
 from fpdf import FPDF
+import time
 
 # --- Configuration ---
 try:
@@ -23,112 +24,114 @@ client = openai.OpenAI(api_key=api_key)
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = [{
         "role": "system", 
-        "content": "You are a resume assistant. Ask one question at a time to build a resume."
+        "content": """You are a professional resume assistant. Ask one question at a time to collect:
+        1. Full name, contact info
+        2. Professional summary
+        3. Work experience (company, role, duration, achievements)
+        4. Education
+        5. Skills
+        When you have all information, say 'RESUME READY' exactly."""
     }]
 if "resume_ready" not in st.session_state:
     st.session_state.resume_ready = False
-if "last_assistant_message" not in st.session_state:
-    st.session_state.last_assistant_message = ""
 
 # --- UI Setup ---
 st.set_page_config(page_title="Resume Builder", layout="centered")
 st.title("📄 Smart Resume Builder")
-st.write("Hello! I'll help you create a professional resume.")
 
-# --- Chat Display ---
+# --- Chat Interface ---
 if not st.session_state.resume_ready:
-    # Show chat history (skip system message)
+    # Display chat history
     for msg in st.session_state.chat_history[1:]:
         role = "🤖 Assistant" if msg["role"] == "assistant" else "🧑 You"
         st.markdown(f"**{role}:** {msg['content']}")
 
-    # Initial assistant message
-    if len(st.session_state.chat_history) == 1:
-        with st.spinner("Thinking..."):
+    # Generate next question if needed
+    if st.session_state.chat_history[-1]["role"] != "assistant":
+        with st.spinner("Preparing your next question..."):
             try:
                 response = client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=st.session_state.chat_history
                 )
-                first_question = response.choices[0].message.content
-                st.session_state.chat_history.append({
-                    "role": "assistant", 
-                    "content": first_question
-                })
-                st.session_state.last_assistant_message = first_question
+                reply = response.choices[0].message.content
+                st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                
+                if "RESUME READY" in reply:
+                    st.session_state.resume_ready = True
+                
                 st.rerun()
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Error generating question: {e}")
                 st.stop()
 
-    # Input box - always starts empty for new questions
+    # User input
     user_input = st.text_input(
-        "Your answer:",
-        key=f"input_{len(st.session_state.chat_history)}",  # Unique key per question
+        "Your answer:", 
+        key=f"input_{len(st.session_state.chat_history)}",
         value=""
     )
 
     if st.button("Send", use_container_width=True) and user_input.strip():
-        # Add user response
-        st.session_state.chat_history.append({
-            "role": "user", 
-            "content": user_input
-        })
-        
-        with st.spinner("Thinking..."):
-            try:
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=st.session_state.chat_history
-                )
-                assistant_reply = response.choices[0].message.content
-                st.session_state.chat_history.append({
-                    "role": "assistant", 
-                    "content": assistant_reply
-                })
-                
-                if "resume is ready" in assistant_reply.lower():
-                    st.session_state.resume_ready = True
-                
-                st.rerun()  # This clears the input
-                
-            except Exception as e:
-                st.error(f"Error: {e}")
+        st.session_state.chat_history.append({"role": "user", "content": user_input})
+        st.rerun()
 
 # --- Resume Generation ---
 else:
-    st.subheader("Your Resume")
-    with st.spinner("Generating..."):
+    st.subheader("Your Professional Resume")
+    
+    with st.spinner("Generating your resume..."):
         try:
+            # Generate markdown resume
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=st.session_state.chat_history + [{
                     "role": "user",
-                    "content": "Generate my resume in markdown format"
+                    "content": """Generate a professional resume in markdown format with these sections:
+                    1. Header with name and contact info
+                    2. Professional Summary
+                    3. Work Experience (with bullet points)
+                    4. Education
+                    5. Skills
+                    Use proper markdown formatting."""
                 }]
             )
-            resume = response.choices[0].message.content
-            st.markdown(resume)
+            resume_md = response.choices[0].message.content
+            st.markdown(resume_md)
             
-            # PDF Generation
+            # Generate PDF
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Arial", size=12)
-            for line in resume.replace('*', '').split('\n'):
-                if line.strip():
-                    pdf.multi_cell(0, 10, line.strip())
+            
+            # Convert markdown to plain text
+            text_content = []
+            for line in resume_md.split('\n'):
+                clean_line = line.replace('*', '').replace('#', '').strip()
+                if clean_line:
+                    text_content.append(clean_line)
+            
+            # Add to PDF
+            for line in text_content:
+                pdf.multi_cell(0, 10, txt=line)
+                pdf.ln(5)
+            
+            # Save PDF to bytes
+            pdf_output = pdf.output(dest='S')
+            pdf_bytes = bytes(pdf_output)
+            
+            # Download button
             st.download_button(
-                "📥 Download PDF",
-                pdf.output(dest='S').encode('latin1'),
-                "resume.pdf",
-                "application/pdf",
+                label="📥 Download as PDF",
+                data=pdf_bytes,
+                file_name="professional_resume.pdf",
+                mime="application/pdf",
                 use_container_width=True
             )
             
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Error generating resume: {str(e)}")
     
     if st.button("🔄 Start Over", use_container_width=True):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
+        st.session_state.clear()
         st.rerun()
