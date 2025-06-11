@@ -15,10 +15,14 @@ import openai
 # secrets on Streamlit Cloud.
 # Accessing secrets: st.secrets["OPENAI_API_KEY"]
 try:
-    openai.api_key = st.secrets["OPENAI_API_KEY"]
+    api_key = st.secrets["OPENAI_API_KEY"]
 except KeyError:
     st.error("OpenAI API key not found in Streamlit secrets. Please add it to your app's secrets.")
     st.stop() # Stop the app if API key is not found
+
+# Initialize the OpenAI client for the new API (v1.x.x+)
+# This client handles authentication and communication with the OpenAI API.
+client = openai.OpenAI(api_key=api_key)
 
 # --- Session State Initialization ---
 # Initialize session state variables if they don't already exist.
@@ -57,17 +61,16 @@ if not st.session_state.resume_ready:
     if len(st.session_state.chat_history) == 1 and not st.session_state.last_assistant_message:
         with st.spinner("Thinking..."):
             try:
-                # Generate the first question from the AI
-                response = openai.ChatCompletion.create(
+                # Generate the first question from the AI using the new API syntax
+                response = client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=st.session_state.chat_history
                 )
-                initial_assistant_message = response["choices"][0]["message"]["content"]
+                initial_assistant_message = response.choices[0].message.content # Accessing content using dot notation
                 st.session_state.chat_history.append({"role": "assistant", "content": initial_assistant_message})
-                # CORRECTED TYPO HERE: was st.session_session_state.last_assistant_message
                 st.session_state.last_assistant_message = initial_assistant_message 
                 st.experimental_rerun() # Rerun to display the initial message
-            except openai.APIError as e: # Changed from openai.error.OpenAIError
+            except openai.APIError as e:
                 st.error(f"Error communicating with OpenAI: {e}")
                 st.stop() # Stop execution if there's an API error
 
@@ -88,12 +91,12 @@ if not st.session_state.resume_ready:
 
             with st.spinner("AI is thinking..."):
                 try:
-                    # Send the entire chat history to OpenAI to maintain context
-                    response = openai.ChatCompletion.create(
+                    # Send the entire chat history to OpenAI to maintain context using the new API syntax
+                    response = client.chat.completions.create(
                         model="gpt-3.5-turbo",
                         messages=st.session_state.chat_history
                     )
-                    assistant_message = response["choices"][0]["message"]["content"]
+                    assistant_message = response.choices[0].message.content # Accessing content using dot notation
 
                     # Add assistant reply to chat history
                     st.session_state.chat_history.append({"role": "assistant", "content": assistant_message})
@@ -106,7 +109,7 @@ if not st.session_state.resume_ready:
                        "i have enough information" in assistant_message.lower():
                         st.session_state.resume_ready = True
 
-                except openai.APIError as e: # Changed from openai.error.OpenAIError
+                except openai.APIError as e:
                     st.error(f"Error communicating with OpenAI: {e}")
             
             # Rerun the app to update the display with new messages
@@ -118,13 +121,13 @@ else:
     st.subheader("## 📝 Your Generated Resume")
     with st.spinner("Generating your professional resume..."):
         try:
-            # Send a final prompt to the LLM to generate the resume in Markdown format
+            # Send a final prompt to the LLM to generate the resume in Markdown format using the new API syntax
             final_resume_prompt = "Based on our conversation, please generate a full, professional resume in markdown format. Include sections like Contact Information, Summary/Objective, Work Experience, Education, Skills, and any other relevant sections we discussed. Format it clearly and professionally."
-            response = openai.ChatCompletion.create(
+            response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=st.session_state.chat_history + [{"role": "user", "content": final_resume_prompt}]
             )
-            resume_md = response["choices"][0]["message"]["content"]
+            resume_md = response.choices[0].message.content # Accessing content using dot notation
             st.markdown(resume_md)
 
             # Optionally allow download of the resume as a text file
@@ -136,7 +139,7 @@ else:
                 use_container_width=True
             )
 
-        except openai.APIError as e: # Changed from openai.error.OpenAIError
+        except openai.APIError as e:
             st.error(f"Error generating resume with OpenAI: {e}")
     
     # Button to start over the resume building process
