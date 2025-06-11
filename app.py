@@ -9,7 +9,7 @@ Original file is located at
 import streamlit as st
 import openai
 from fpdf import FPDF
-import time
+import random
 
 # --- Configuration ---
 try:
@@ -20,50 +20,64 @@ except KeyError:
 
 client = openai.OpenAI(api_key=api_key)
 
+# --- Question Setup ---
+QUESTIONS = {
+    "name": "What is your full name?",
+    "phone": "What is your phone number?",
+    "email": "What is your professional email address?",
+    "summary": "Please write a 2-3 sentence professional summary:",
+    "company": "What company did you work at? (If none, say 'None')",
+    "title": "What was your job title there?",
+    "dates": "What were the start and end dates? (e.g., Jan 2020 - Dec 2022)",
+    "institution": "What educational institution did you attend?",
+    "degree": "What degree did you earn?",
+    "skills": "List your top 5-10 skills (comma separated):"
+}
+
 # --- Session State Initialization ---
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = [{
         "role": "system", 
-        "content": """You are a professional resume assistant. Ask one question at a time to collect:
-        1. Full name, contact info
-        2. Professional summary
-        3. Work experience (company, role, duration, achievements)
-        4. Education
-        5. Skills
-        When you have all information, say 'RESUME READY' exactly."""
+        "content": """You are a resume assistant. First ask for name, then ask other questions one at a time.
+        When all information is collected, say "RESUME READY TO GENERATE" exactly."""
     }]
-if "resume_ready" not in st.session_state:
+    st.session_state.remaining_questions = list(QUESTIONS.keys())
+    # Always ask name first
+    st.session_state.current_question = "name"
+    st.session_state.answers = {}
     st.session_state.resume_ready = False
 
 # --- UI Setup ---
 st.set_page_config(page_title="Resume Builder", layout="centered")
 st.title("📄 Smart Resume Builder")
+st.write("I'll help you create a professional resume.")
 
 # --- Chat Interface ---
 if not st.session_state.resume_ready:
-    # Display chat history
+    # Display chat history (skip system message)
     for msg in st.session_state.chat_history[1:]:
         role = "🤖 Assistant" if msg["role"] == "assistant" else "🧑 You"
         st.markdown(f"**{role}:** {msg['content']}")
 
     # Generate next question if needed
-    if st.session_state.chat_history[-1]["role"] != "assistant":
+    if len(st.session_state.chat_history) == 1 or st.session_state.chat_history[-1]["role"] != "assistant":
         with st.spinner("Preparing your next question..."):
-            try:
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=st.session_state.chat_history
-                )
-                reply = response.choices[0].message.content
-                st.session_state.chat_history.append({"role": "assistant", "content": reply})
-                
-                if "RESUME READY" in reply:
-                    st.session_state.resume_ready = True
-                
+            if st.session_state.current_question:
+                # Ask the current question
+                question_text = QUESTIONS[st.session_state.current_question]
+                st.session_state.chat_history.append({
+                    "role": "assistant", 
+                    "content": question_text
+                })
                 st.rerun()
-            except Exception as e:
-                st.error(f"Error generating question: {e}")
-                st.stop()
+            else:
+                # No more questions - ready to generate
+                st.session_state.chat_history.append({
+                    "role": "assistant",
+                    "content": "RESUME READY TO GENERATE"
+                })
+                st.session_state.resume_ready = True
+                st.rerun()
 
     # User input
     user_input = st.text_input(
@@ -73,7 +87,24 @@ if not st.session_state.resume_ready:
     )
 
     if st.button("Send", use_container_width=True) and user_input.strip():
-        st.session_state.chat_history.append({"role": "user", "content": user_input})
+        # Save answer
+        st.session_state.answers[st.session_state.current_question] = user_input
+        st.session_state.chat_history.append({
+            "role": "user", 
+            "content": user_input
+        })
+        
+        # Remove asked question
+        if st.session_state.current_question in st.session_state.remaining_questions:
+            st.session_state.remaining_questions.remove(st.session_state.current_question)
+        
+        # Select next question (random except name is always first)
+        st.session_state.current_question = (
+            random.choice(st.session_state.remaining_questions) 
+            if st.session_state.remaining_questions 
+            else None
+        )
+        
         st.rerun()
 
 # --- Resume Generation ---
@@ -83,18 +114,25 @@ else:
     with st.spinner("Generating your resume..."):
         try:
             # Generate markdown resume
+            prompt = f"""Create a professional resume in markdown format using this information:
+            Name: {st.session_state.answers.get('name', '')}
+            Phone: {st.session_state.answers.get('phone', '')}
+            Email: {st.session_state.answers.get('email', '')}
+            Summary: {st.session_state.answers.get('summary', '')}
+            Work Experience: {st.session_state.answers.get('company', '')} - {st.session_state.answers.get('title', '')} ({st.session_state.answers.get('dates', '')})
+            Education: {st.session_state.answers.get('degree', '')} from {st.session_state.answers.get('institution', '')}
+            Skills: {st.session_state.answers.get('skills', '')}
+            
+            Format with these sections:
+            1. Header with name and contact info
+            2. Professional Summary
+            3. Work Experience
+            4. Education
+            5. Skills"""
+            
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
-                messages=st.session_state.chat_history + [{
-                    "role": "user",
-                    "content": """Generate a professional resume in markdown format with these sections:
-                    1. Header with name and contact info
-                    2. Professional Summary
-                    3. Work Experience (with bullet points)
-                    4. Education
-                    5. Skills
-                    Use proper markdown formatting."""
-                }]
+                messages=[{"role": "user", "content": prompt}]
             )
             resume_md = response.choices[0].message.content
             st.markdown(resume_md)
@@ -104,27 +142,18 @@ else:
             pdf.add_page()
             pdf.set_font("Arial", size=12)
             
-            # Convert markdown to plain text
-            text_content = []
+            # Add content to PDF
             for line in resume_md.split('\n'):
                 clean_line = line.replace('*', '').replace('#', '').strip()
                 if clean_line:
-                    text_content.append(clean_line)
-            
-            # Add to PDF
-            for line in text_content:
-                pdf.multi_cell(0, 10, txt=line)
-                pdf.ln(5)
-            
-            # Save PDF to bytes
-            pdf_output = pdf.output(dest='S')
-            pdf_bytes = bytes(pdf_output)
+                    pdf.multi_cell(0, 10, txt=clean_line)
+                    pdf.ln(5)
             
             # Download button
             st.download_button(
                 label="📥 Download as PDF",
-                data=pdf_bytes,
-                file_name="professional_resume.pdf",
+                data=pdf.output(dest='S').encode('latin1'),
+                file_name="resume.pdf",
                 mime="application/pdf",
                 use_container_width=True
             )
