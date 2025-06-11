@@ -24,8 +24,6 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = [{"role": "system", "content": "You are a friendly and professional resume assistant. Your goal is to collect all necessary information from the user to build a comprehensive resume. Ask clear, concise questions one at a time. Once you have enough information, indicate that the resume is ready to be generated."}]
 if "resume_ready" not in st.session_state:
     st.session_state.resume_ready = False
-if "user_input" not in st.session_state:
-    st.session_state.user_input = ""
 if "last_assistant_message" not in st.session_state:
     st.session_state.last_assistant_message = ""
 
@@ -57,18 +55,17 @@ if not st.session_state.resume_ready:
                 st.error(f"Error communicating with OpenAI: {e}")
                 st.stop()
 
-    # Input from user
+    # Input from user - will auto-clear on submit
     user_input = st.text_input(
         "Your answer:", 
-        value="",  # Always start with empty input
-        key="user_input_widget",
-        on_change=lambda: None
+        key="user_input",
+        value="",  # Always starts empty
+        label_visibility="visible"
     )
 
     # Send button logic
     if st.button("Send", use_container_width=True) and user_input.strip():
-        st.session_state.user_input = user_input  # Store the current input
-        st.session_state.last_assistant_message = ""
+        # Add user message to history
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         
         with st.spinner("AI is thinking..."):
@@ -81,7 +78,8 @@ if not st.session_state.resume_ready:
                 st.session_state.chat_history.append({"role": "assistant", "content": assistant_message})
                 st.session_state.last_assistant_message = assistant_message
 
-                if any(phrase in assistant_message.lower() for phrase in ["resume is ready", "generating your resume", "i have enough information"]):
+                if any(phrase in assistant_message.lower() 
+                      for phrase in ["resume is ready", "generating your resume", "i have enough information"]):
                     st.session_state.resume_ready = True
                 
                 # Clear the input by rerunning
@@ -112,7 +110,8 @@ else:
             resume_text = resume_md.replace('#', '').replace('*', '').replace('_', '')
             
             for line in resume_text.split('\n'):
-                pdf.cell(200, 10, txt=line, ln=True)
+                if line.strip():  # Only add non-empty lines
+                    pdf.multi_cell(0, 10, txt=line)
             
             pdf_bytes = pdf.output(dest='S').encode('latin1')
 
@@ -128,7 +127,6 @@ else:
             st.error(f"Error generating resume with OpenAI: {e}")
     
     if st.button("🔄 Start Over", use_container_width=True):
-        for key in ["chat_history", "resume_ready", "user_input", "last_assistant_message"]:
-            if key in st.session_state:
-                del st.session_state[key]
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
         st.rerun()
