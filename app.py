@@ -7,8 +7,8 @@ Original file is located at
     https://colab.research.google.com/drive/1E38UDeEps5lm4Ddm2JRyHQKwunaQaiK0
 """
 
-import streamlit as st
-import openai
+#import streamlit as st
+#import openai
 
 # Load OpenAI API key from secrets
 openai.api_key = st.secrets["OPENAI_API_KEY"]
