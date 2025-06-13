@@ -39,6 +39,8 @@ if "current_input" not in st.session_state:
     st.session_state.current_input = ""
 if "resume_md" not in st.session_state:
     st.session_state.resume_md = ""
+if "awaiting_reply" not in st.session_state:
+    st.session_state.awaiting_reply = False
 
 # --- Helper Functions ---
 def enforce_single_question(message):
@@ -83,53 +85,39 @@ st.write("I'll guide you step-by-step to create your resume. Please answer one q
 if not st.session_state.resume_ready:
     # Display chat history (without system message)
     for msg in st.session_state.chat_history[1:]:
-        if msg["role"] == "assistant":
-            st.chat_message("assistant").write(msg["content"])
-        elif msg["role"] == "user":
-            st.chat_message("user").write(msg["content"])
+        st.chat_message(msg["role"]).write(msg["content"])
 
-    # Generate initial question if needed
-    if len(st.session_state.chat_history) == 1:
-        with st.spinner("Preparing questions..."):
+    # Generate next question when needed
+    if not st.session_state.awaiting_reply:
+        with st.spinner("Preparing next question..."):
             try:
                 response = client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=st.session_state.chat_history
                 )
-                first_question = enforce_single_question(response.choices[0].message.content)
-                st.session_state.chat_history.append({"role": "assistant", "content": first_question})
+                new_question = enforce_single_question(response.choices[0].message.content)
+                st.session_state.chat_history.append({"role": "assistant", "content": new_question})
+                st.session_state.awaiting_reply = True
+                st.session_state.current_input = ""  # Clear previous input
                 st.rerun()
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Error generating question: {e}")
                 st.stop()
 
-    # Input with clearing behavior
-    def submit_callback():
-        if st.session_state.user_input_widget:
-            st.session_state.chat_history.append({"role": "user", "content": st.session_state.user_input_widget})
-            st.session_state.current_input = ""  # Clear the input
-            
-            with st.spinner("Processing..."):
-                try:
-                    response = client.chat.completions.create(
-                        model="gpt-3.5-turbo",
-                        messages=st.session_state.chat_history
-                    )
-                    assistant_msg = enforce_single_question(response.choices[0].message.content)
-                    
-                    if "RESUME READY:" in assistant_msg:
-                        st.session_state.resume_ready = True
-                    else:
-                        st.session_state.chat_history.append({"role": "assistant", "content": assistant_msg})
-                    
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
+    # User input with proper state management
+    user_input = st.text_input(
+        "Your answer:",
+        key="user_input_widget",
+        value=st.session_state.current_input,
+        on_change=lambda: None
+    )
 
-    st.text_input("Your answer:", 
-                 key="user_input_widget",
-                 value=st.session_state.current_input,
-                 on_change=submit_callback)
+    if st.button("Submit", type="primary"):
+        if user_input.strip():
+            st.session_state.chat_history.append({"role": "user", "content": user_input})
+            st.session_state.awaiting_reply = False
+            st.session_state.current_input = ""  # Clear input
+            st.rerun()
 
 # --- Resume Generation ---
 else:
@@ -161,6 +149,7 @@ else:
                         "application/pdf",
                         use_container_width=True
                     )
+                os.unlink(tmp.name)  # Clean up
             
             # Markdown Download
             st.download_button(
