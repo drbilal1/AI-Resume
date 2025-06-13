@@ -21,16 +21,8 @@ if "chat_history" not in st.session_state:
         You are a professional resume assistant. Follow these rules STRICTLY:
         1. Ask ONLY ONE question per message.
         2. Follow this exact order:
-           - Ask for full name (wait for response)
-           - Then ask for phone number (wait)
-           - Then ask for email (wait)
-           - Then ask for address (wait)
-           - Then ask for professional summary (wait)
-           - Then ask about work experience (one position at a time)
-           - Then ask about education
-           - Finally ask about skills
-        3. Never combine questions.
-        4. After all information is collected, say: "RESUME READY: Your resume is now complete."
+           - Full name → Phone → Email → Address → Summary → Experience → Education → Skills
+        3. After all information is collected, say: "RESUME READY"
         """
     }]
 if "resume_ready" not in st.session_state:
@@ -39,15 +31,13 @@ if "current_input" not in st.session_state:
     st.session_state.current_input = ""
 if "resume_md" not in st.session_state:
     st.session_state.resume_md = ""
-if "awaiting_reply" not in st.session_state:
-    st.session_state.awaiting_reply = False
+if "needs_rerun" not in st.session_state:
+    st.session_state.needs_rerun = False
 
 # --- Helper Functions ---
 def enforce_single_question(message):
     """Force single question by taking text before first '?'"""
-    if "?" in message:
-        return message.split("?")[0] + "?"
-    return message
+    return message.split("?")[0] + "?" if "?" in message else message
 
 def markdown_to_pdf(markdown_text, filename):
     """Convert markdown to PDF with formatting"""
@@ -76,19 +66,17 @@ def markdown_to_pdf(markdown_text, filename):
     
     pdf.output(filename)
 
-# --- Streamlit UI ---
-st.set_page_config(page_title="Resume Builder", layout="centered")
-st.title("📝 Professional Resume Builder")
-st.write("I'll guide you step-by-step to create your resume. Please answer one question at a time.")
-
-# --- Chat Interface ---
-if not st.session_state.resume_ready:
-    # Display chat history (without system message)
+# --- Main App Logic ---
+def main():
+    st.set_page_config(page_title="Resume Builder", layout="centered")
+    st.title("📝 Professional Resume Builder")
+    
+    # Display chat history
     for msg in st.session_state.chat_history[1:]:
         st.chat_message(msg["role"]).write(msg["content"])
 
-    # Generate next question when needed
-    if not st.session_state.awaiting_reply:
+    # Generate next question if needed
+    if not st.session_state.resume_ready and len(st.session_state.chat_history) % 2 == 1:
         with st.spinner("Preparing next question..."):
             try:
                 response = client.chat.completions.create(
@@ -97,73 +85,73 @@ if not st.session_state.resume_ready:
                 )
                 new_question = enforce_single_question(response.choices[0].message.content)
                 st.session_state.chat_history.append({"role": "assistant", "content": new_question})
-                st.session_state.awaiting_reply = True
-                st.session_state.current_input = ""  # Clear previous input
-                st.rerun()
+                if "RESUME READY" in new_question:
+                    st.session_state.resume_ready = True
+                st.session_state.current_input = ""
+                st.session_state.needs_rerun = True
             except Exception as e:
-                st.error(f"Error generating question: {e}")
-                st.stop()
+                st.error(f"Error: {e}")
 
-    # User input with proper state management
-    user_input = st.text_input(
-        "Your answer:",
-        key="user_input_widget",
-        value=st.session_state.current_input,
-        on_change=lambda: None
-    )
+    # Handle user input
+    if not st.session_state.resume_ready:
+        user_input = st.text_input(
+            "Your answer:", 
+            key="user_input",
+            value=st.session_state.current_input
+        )
+        
+        if st.button("Submit"):
+            if user_input.strip():
+                st.session_state.chat_history.append({"role": "user", "content": user_input})
+                st.session_state.current_input = ""
+                st.session_state.needs_rerun = True
 
-    if st.button("Submit", type="primary"):
-        if user_input.strip():
-            st.session_state.chat_history.append({"role": "user", "content": user_input})
-            st.session_state.awaiting_reply = False
-            st.session_state.current_input = ""  # Clear input
-            st.rerun()
+    # Generate resume when ready
+    else:
+        st.success("✅ Resume ready!")
+        with st.spinner("Generating resume..."):
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        *st.session_state.chat_history,
+                        {"role": "user", "content": "Generate markdown resume with: Contact, Summary, Experience, Education, Skills"}
+                    ]
+                )
+                st.session_state.resume_md = response.choices[0].message.content
+                st.markdown(st.session_state.resume_md)
+                
+                # PDF Generation
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                    markdown_to_pdf(st.session_state.resume_md, tmp.name)
+                    with open(tmp.name, "rb") as f:
+                        st.download_button(
+                            "⬇️ Download PDF",
+                            f.read(),
+                            "resume.pdf",
+                            "application/pdf"
+                        )
+                    os.unlink(tmp.name)
+                
+                # Markdown Download
+                st.download_button(
+                    "⬇️ Download Markdown",
+                    st.session_state.resume_md,
+                    "resume.md",
+                    "text/markdown"
+                )
+                
+            except Exception as e:
+                st.error(f"Generation error: {e}")
 
-# --- Resume Generation ---
-else:
-    st.success("✅ All information collected! Generating your resume...")
-    
-    with st.spinner("Creating professional resume..."):
-        try:
-            # Generate markdown
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    *st.session_state.chat_history,
-                    {"role": "user", "content": "Generate a well-formatted markdown resume with: Contact, Summary, Experience, Education, and Skills sections."}
-                ]
-            )
-            st.session_state.resume_md = response.choices[0].message.content
-            
-            # Display
-            st.markdown(st.session_state.resume_md)
-            
-            # PDF Generation
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                markdown_to_pdf(st.session_state.resume_md, tmp.name)
-                with open(tmp.name, "rb") as f:
-                    st.download_button(
-                        "⬇️ Download PDF",
-                        f.read(),
-                        "professional_resume.pdf",
-                        "application/pdf",
-                        use_container_width=True
-                    )
-                os.unlink(tmp.name)  # Clean up
-            
-            # Markdown Download
-            st.download_button(
-                "⬇️ Download Markdown",
-                st.session_state.resume_md,
-                "resume.md",
-                "text/markdown",
-                use_container_width=True
-            )
-            
-        except Exception as e:
-            st.error(f"Generation error: {e}")
-    
-    if st.button("🔄 Start New Resume", use_container_width=True):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
+        if st.button("🔄 Start Over"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.session_state.needs_rerun = True
+
+# --- Run Logic ---
+if __name__ == "__main__":
+    main()
+    if st.session_state.needs_rerun:
+        st.session_state.needs_rerun = False
         st.rerun()
